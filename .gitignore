@@ -1,0 +1,22 @@
+# Python cache
+__pycache__/
+*.pyc
+# Jupyter checkpoints 
+.ipynb_checkpoints/
+# Virtual environments
+.venv/
+venv/
+env/
+# Data files
+data/raw/*
+data/processed/*
+# keep folder structure
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+# saved models
+models/*
+!models/.gitkeep
+# sytem files
+.DS_Store
+Thumbs.db
+python_imp.ipynb
