@@ -33,7 +33,7 @@ from sklearn.inspection import permutation_importance
 RANDOM_STATE = 42
 TARGET = 'is_canceled'
 
-PROJECT_DIR = Path(__file__).resolve().parent[1]
+PROJECT_DIR = Path(__file__).resolve().parents[1]
 
 DATA_PATH = PROJECT_DIR / 'data' / 'raw' / 'hotels.csv'
 
@@ -140,7 +140,7 @@ def clean_and_engineer_features(df: pd.DataFrame) -> pd.DataFrame:
 # Split features and target
 # =========================
 
-def split_features_target(df: pd.dataFrame):
+def split_features_target(df: pd.DataFrame):
     X = df.drop(columns=[TARGET])
     y = df[TARGET].astype(int)
 
@@ -329,7 +329,7 @@ def main():
     print("Dataset shape after cleaning:", df_model.shape)
 
     print('\n Target distribution:')
-    print(df_model['target'].value_counts())
+    print(df_model[TARGET].value_counts())
 
     X,y = split_features_target(df_model)
 
@@ -357,8 +357,7 @@ def main():
     decision_tree_model = build_pipeline(
         preprocessor,
         DecisionTreeClassifier(random_state=RANDOM_STATE,
-                               class_weight='balanced',
-                               n_jobs=-1)
+                               class_weight='balanced')
     )
 
     random_forest_model = build_pipeline(
@@ -400,14 +399,13 @@ def main():
     }
 
     dt_search = RandomizedSearchCV(
-        etimator = decision_tree_model,
+        estimator = decision_tree_model,
         param_distributions = dt_param_grid,
         n_iter = 35,
         cv = cv,
         scoring = 'f1',
-        cv = cv,
         random_state = RANDOM_STATE,
-        n_jobs = -1
+        n_jobs = -1,
         verbose = 1,
         refit = True
     )
