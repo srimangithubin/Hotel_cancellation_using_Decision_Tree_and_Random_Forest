@@ -278,7 +278,7 @@ def evaluate_model(model_name, fitted_model, X_test, y_test):
 # Feature importance
 # =========================
 
-def save_feaeture_importance(best_model, X_test, y_test):
+def save_feature_importance(best_model, X_test, y_test):
     importance = permutation_importance(
         best_model,
         X_test,
@@ -400,5 +400,91 @@ def main():
     }
 
     dt_search = RandomizedSearchCV(
+        etimator = decision_tree_model,
+        param_distributions = dt_param_grid,
+        n_iter = 35,
+        cv = cv,
+        scoring = 'f1',
+        cv = cv,
+        random_state = RANDOM_STATE,
+        n_jobs = -1
+        verbose = 1,
+        refit = True
+    )
 
+    dt_search.fit(X_train, y_train)
 
+    print("\nBest Decision Tree parameters:")
+    print(dt_search.best_params_)
+    print("Best Decision Tree CV F1:", dt_search.best_score_)
+
+    print("\n Tuning Random Forest:")
+    
+    rf_param_grid = {
+        "model__n_estimators": [100, 200, 300],
+        "model__criterion": ["gini", "entropy"],
+        "model__max_depth": [6, 10, 15, 20, 30, None],
+        "model__min_samples_split": [2, 5, 10, 20],
+        "model__min_samples_leaf": [1, 2, 5, 10],
+        "model__max_features": ["sqrt", "log2"],
+        "model__bootstrap": [True, False]
+    }
+
+    rf_search = RandomizedSearchCV(
+        estimator = random_forest_model,
+        param_distributions = rf_param_grid,
+        n_iter = 40,
+        cv = cv,
+        scoring = 'f1',
+        random_state = RANDOM_STATE,
+        verbose = 1,
+        refit = True,
+        n_jobs = -1
+    )
+
+    rf_search.fit(X_train, y_train)
+
+    print("\nBest Random Forest Parameters:")
+    print(rf_search.best_params_)
+    print("Best Random Forest CV F1:", rf_search.best_score_)
+
+    print("\nEvaluating best models on test set...")
+
+    test_results = []
+    test_results.append(
+        evaluate_model("Tuned Decision Tree", dt_search.best_estimator_, X_test, y_test)
+    )
+
+    test_results.append(
+        evaluate_model("Tuned Random Forest", rf_search.best_estimator_, X_test, y_test)
+    )
+
+    test_results_df = pd.DataFrame(test_results)
+    test_results_path = REPORT_DIR / 'test_results.csv'
+    test_results_df.to_csv(test_results_path, index=False)
+
+    print("\nTest set results:")
+    print(test_results_df)
+
+    if rf_search.best_score_ > dt_search.best_score_:
+        best_model_name = 'Random Forest'
+        best_model = rf_search.best_estimator_
+    else:
+        best_model_name = 'Decision Tree'
+        best_model = dt_search.best_estimator_
+    
+    print(f"\nSaving best model: {best_model_name}")
+    print('\nsaving feature importance...')
+    importance_df = save_feature_importance(best_model, X_test, y_test)
+
+    print('\nTop 15 important features:')
+    print(importance_df.head(15))
+
+    model_path = MODEL_DIR / 'best_model.joblib'
+    joblib.dump(best_model, model_path)
+
+    print('\nSaved best model to:', model_path)
+    print('Training workflow sucessfully completed')
+
+if __name__ == '__main__':
+    main()
