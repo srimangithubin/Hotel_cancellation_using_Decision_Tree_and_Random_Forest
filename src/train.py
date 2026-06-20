@@ -30,7 +30,7 @@ from sklearn.inspection import permutation_importance
 # Project configuration
 # =========================
 
-Random_STATE = 42
+RANDOM_STATE = 42
 TARGET = 'is_canceled'
 
 PROJECT_DIR = Path(__file__).resolve().parent[1]
@@ -134,3 +134,271 @@ def clean_and_engineer_features(df: pd.DataFrame) -> pd.DataFrame:
         df = df[df['adr']>=0]
 
     return df
+
+
+# =========================
+# Split features and target
+# =========================
+
+def split_features_target(df: pd.dataFrame):
+    X = df.drop(columns=[TARGET])
+    y = df[TARGET].astype(int)
+
+    return X,y
+
+
+# =========================
+# Preprocessing
+# =========================
+
+def build_preprocessor(X: pd.DataFrame) -> ColumnTransformer:
+    numeric_features = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    categorical_features = X.select_dtypes(include=['object','category','bool']).columns.tolist()
+
+    numeric_pipeline = Pipeline(
+        steps =[
+            ('imputer', SimpleImputer(strategy='median'))
+                ]
+    )
+
+    categorical_pipeline = Pipeline(
+        steps =[
+            ('imputer', SimpleImputer(strategy='most_frequent')),
+            ('encoder', OneHotEncoder(handle_unknown='ignore'))
+        ]
+    )
+
+    preprocessor = ColumnTransformer(
+        transformers = [
+            ('num', numeric_pipeline, numeric_features),
+            ('cat', categorical_pipeline, categorical_features)
+        ]
+    )
+
+    return preprocessor
+
+
+# =========================
+# Build pipelines
+# =========================
+
+
+def build_pipeline(preprocessor, model) -> Pipeline:
+    pipeline = Pipeline(
+        steps = [
+            ('preprocessor', preprocessor),
+            ('model', model)
+        ]
+    )
+
+    return pipeline
+
+# =========================
+# Cross-validation
+# =========================
+
+def run_cross_validation(model_name, pipeline, X_train, y_train, cv):
+    scoring = {
+        'accuracy': 'accuracy',
+        'precision': 'precision',
+        'recall': 'recall',
+        'f1': 'f1',
+        'roc_auc': 'roc_auc'
+    }
+
+    scores = cross_validate(
+        pipeline,
+        X_train,
+        y_train,
+        cv = cv,
+        scoring = scoring,
+        return_train_score = True
+    )
+
+    result = {
+        "model": model_name,
+        "cv_accuracy": scores["test_accuracy"].mean(),
+        "cv_precision": scores["test_precision"].mean(),
+        "cv_recall": scores["test_recall"].mean(),
+        "cv_f1": scores["test_f1"].mean(),
+        "cv_roc_auc": scores["test_roc_auc"].mean(),
+        "train_f1": scores["train_f1"].mean(),
+        "f1_std": scores["test_f1"].std()
+    }
+
+    return result
+
+# =========================
+# Test-set evaluation
+# =========================
+
+def evaluate_model(model_name, fitted_model, X_test, y_test):
+    y_pred = fitted_model.predict(X_test)
+    y_proba = fitted_model.predict_proba(X_test)[:,1]
+
+    results = {
+        "model": model_name,
+        "test_accuracy": accuracy_score(y_test, y_pred),
+        "test_precision": precision_score(y_test, y_pred),
+        "test_recall": recall_score(y_test, y_pred),
+        "test_f1": f1_score(y_test, y_pred),
+        "test_roc_auc": roc_auc_score(y_test, y_proba)
+    }
+
+    print (f'\n === {model_name} Test Results ===')
+    print(json.dumps(results, indent=4))
+
+    print("\nClassification Report:")
+    print(classification_report(y_test, y_pred))
+
+    # confusion matrix
+    cm = confusion_matrix(y_test, y_pred)
+    
+    disp = ConfusionMatrixDisplay(confusion_matrix = cm)
+    disp.plot()
+    plt.title(f'{model_name} Confusion Matrix')
+    plt.tight_layout()
+
+    cm_path = IMAGE_DIR / f'{model_name.lower().replace(" ","_")}_confusion_matrix.png'
+    plt.savefig(cm_path)
+    plt.close()
+
+    # Roc Curve
+    RocCurveDisplay.from_estimators(fitted_model, X_test, y_test)
+    plt.title(f'{model_name} ROC curve')
+    plt.tight_layout()
+
+    roc_path = IMAGE_DIR / f'{model_name.lower().replace(" ","_")}_roc_curve.png'
+    plt.savefig(roc_path)
+    plt.close()
+    
+    return results
+
+# =========================
+# Feature importance
+# =========================
+
+def save_feaeture_importance(best_model, X_test, y_test):
+    importance = permutation_importance(
+        best_model,
+        X_test,
+        y_test,
+        n_repeats = 10,
+        random_state = RANDOM_STATE,
+        scoring = 'f1',
+        n_jobs = -1
+    )
+
+    importance_df = pd.DataFrame(
+        {
+            'feature': X_test.columns,
+            'importance_mean': importance.importances_mean,
+            'importance_std': importance.importances_std
+        }
+    ).sort_values(by = 'importance_mean', ascending = False)
+
+    importance_path = REPORT_DIR / 'feature_importance.csv'
+    importance_df.to_csv(importance_path, index=False)
+
+    top_features = importance_df.head(15)
+
+    plt.figure(figsize=(10,6))
+    plt.barh(top_features['feature'], top_features['importance_mean'])
+    plt.gca().invert_yaxis()
+    plt.title('Top 15 feature importance (permutation importance)')
+    plt.xlabel('Mean F1 importance')
+    plt.tight_layout()
+
+    image_path = IMAGE_DIR / 'feature_importance.png'
+    plt.savefig(image_path)
+    plt.close()
+
+    return importance_df
+
+# =========================
+# Main training workflow
+# =========================
+
+def main():
+    print("Loading data...")
+    df = load_data(DATA_PATH)
+
+    print("Cleaning and engineering features...")
+    df_model = clean_and_engineer_features(df)
+
+    print("Dataset shape after cleaning:", df_model.shape)
+
+    print('\n Target distribution:')
+    print(df_model['target'].value_counts())
+
+    X,y = split_features_target(df_model)
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size = 0.2,
+        random_state = RANDOM_STATE,
+        stratify = y
+    )
+
+    preprocessor = build_preprocessor(X_train)
+
+    cv = StratifiedKFold(
+        n_splits=5,
+        shuffle=True,
+        random_state=RANDOM_STATE
+    )
+
+    baseline_model = build_pipeline(
+        preprocessor,
+        DummyClassifier(strategy='most_frequent')
+     )
+    
+    decision_tree_model = build_pipeline(
+        preprocessor,
+        DecisionTreeClassifier(random_state=RANDOM_STATE,
+                               class_weight='balanced',
+                               n_jobs=-1)
+    )
+
+    random_forest_model = build_pipeline(
+        preprocessor,
+        RandomForestClassifier(random_state=RANDOM_STATE,
+                               class_weight='balanced',
+                               n_jobs=-1)
+    )
+
+    print("\nRunning cross-validation...")
+    cv_results = []
+
+    cv_results.append(
+        run_cross_validation("Baseline Dummy Classifier", baseline_model, X_train, y_train, cv)
+    )
+
+    cv_results.append(
+        run_cross_validation("Decision Tree", decision_tree_model, X_train, y_train, cv)
+    )
+
+    cv_results.append(
+        run_cross_validation("Random Forest", random_forest_model, X_train, y_train, cv)
+    )
+
+    cv_results_df = pd.DataFrame(cv_results)
+    cv_results_path = REPORT_DIR / 'cv_results_before_tuning.csv'
+    cv_results_df.to_csv(cv_results_path, index=False)
+
+    print("\nCross-validation results:")
+    print(cv_results_df)
+
+    print("\nTuning Decision Tree:")
+    dt_param_grid = {
+        "model__criterion": ["gini", "entropy"],
+        "model__max_depth": [4, 6, 8, 10, 15, 20, None],
+        "model__min_samples_split": [2, 5, 10, 20, 50],
+        "model__min_samples_leaf": [1, 2, 5, 10, 20],
+        "model__max_features": [None, "sqrt", "log2"]
+    }
+
+    dt_search = RandomizedSearchCV(
+
+
