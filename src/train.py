@@ -264,7 +264,7 @@ def evaluate_model(model_name, fitted_model, X_test, y_test):
     plt.close()
 
     # Roc Curve
-    RocCurveDisplay.from_estimators(fitted_model, X_test, y_test)
+    RocCurveDisplay.from_estimator(fitted_model, X_test, y_test)
     plt.title(f'{model_name} ROC curve')
     plt.tight_layout()
 
